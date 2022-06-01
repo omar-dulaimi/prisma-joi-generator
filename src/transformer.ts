@@ -284,8 +284,16 @@ export default class Transformer {
   addExportSchema(schema: string, name: string) {
     return `export const ${name}Schema = ${schema}`;
   }
+
+  getImportNoCheck() {
+    let imports = '// @ts-nocheck';
+    imports += '\n';
+    return imports;
+  }
+
+
   getFinalForm(joiStringFields: string) {
-    return `${this.getImportsForSchemaObjects()}${this.addExportSchemaObject(
+    return `${this.getImportNoCheck()}${this.getImportsForSchemaObjects()}${this.addExportSchemaObject(
       this.wrapWithObject({ joiStringFields }),
     )}`;
   }
