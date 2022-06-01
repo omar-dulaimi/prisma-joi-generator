@@ -8,6 +8,7 @@ export default class Transformer {
   schemaImports?: Set<string>;
   modelOperations?: PrismaDMMF.ModelMapping[];
   enumTypes?: PrismaDMMF.SchemaEnum[];
+  static enumNames: Array<string> = [];
   private static outputPath?: string;
   constructor({
     name,
@@ -43,7 +44,7 @@ export default class Transformer {
   getAllSchemaImports() {
     return [...(this.schemaImports ?? [])]
       .map((name) =>
-        name === 'SortOrder'
+        Transformer.enumNames.includes(name)
           ? `import { ${name}Schema } from '../enums/${name}.schema'`
           : `import { ${name}SchemaObject } from './${name}.schema'`,
       )
@@ -63,7 +64,7 @@ export default class Transformer {
           }: Joi.array().items(${`Joi.link('#${inputType.type}')`})`;
         } else {
           return `  ${field.name}: ${
-            inputType.type === 'SortOrder'
+            Transformer.enumNames.includes(inputType.type as string)
               ? `${`${inputType.type}Schema`}`
               : `Joi.array().items(Joi.object().keys(${`${inputType.type}SchemaObject`}))`
           }`;
@@ -73,7 +74,7 @@ export default class Transformer {
           return `  ${field.name}: ${`Joi.link('#${inputType.type}')`}`;
         } else {
           return `  ${field.name}: ${
-            inputType.type === 'SortOrder'
+            Transformer.enumNames.includes(inputType.type as string)
               ? `${`${inputType.type}Schema`}`
               : `Joi.object().keys(${`${inputType.type}SchemaObject`})`
           }`;
@@ -87,7 +88,7 @@ export default class Transformer {
           return `Joi.array().items(${`Joi.link('#${inputType.type}')`})`;
         } else {
           return `${
-            inputType.type === 'SortOrder'
+            Transformer.enumNames.includes(inputType.type as string)
               ? `${`${inputType.type}Schema`}`
               : `Joi.array().items(Joi.object().keys(${`${inputType.type}SchemaObject`}))`
           }`;
@@ -97,7 +98,7 @@ export default class Transformer {
           return `${`Joi.link('#${inputType.type}')`}`;
         } else {
           return `${
-            inputType.type === 'SortOrder'
+            Transformer.enumNames.includes(inputType.type as string)
               ? `${`${inputType.type}Schema`}`
               : `Joi.object().keys(${`${inputType.type}SchemaObject`})`
           }`;
@@ -192,6 +193,10 @@ export default class Transformer {
               }
               result.push(
                 this.getPrismaStringLine(field, inputType, inputsLength),
+              );
+            } else if (inputType.type === 'Json') {
+              result.push(
+                inputType.isList ? 'Joi.array().items(Joi.any())' : 'Joi.any()',
               );
             }
           }
