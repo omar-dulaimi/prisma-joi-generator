@@ -76,12 +76,11 @@ will generate the following files
 4- Use generated schemas somewhere in your API logic, like middleware or decorator
 
 ```ts
-import Joi from "joi";
-import { PostCreateSchema } from "./prisma/generated/schemas/createOnePost.schema.ts";
+import { PostCreateSchema } from "./prisma/generated/schemas";
 
 app.post('/blog', async (req, res, next) => { 
   const { body } = req; 
-  const result = Joi.validate(body, PostCreateSchema); 
+  const result = PostCreateSchema.validate(body); 
 });
 ```
 
