@@ -15,9 +15,20 @@ Automatically generate [Joi](https://joi.dev/api) schemas from your [Prisma](htt
 
 ## Table of Contents
 
+- [Supported Prisma Versions](#supported-prisma-versions)
 - [Installation](#installing)
 - [Usage](#usage)
 - [Additional Options](#additional-options)
+
+# Supported Prisma Versions
+
+### Prisma 4
+
+- 0.2.0 and higher
+
+### Prisma 2/3
+
+- 0.1.1 and lower
 
 ## Installation
 
@@ -35,7 +46,7 @@ Using yarn:
 
 # Usage
 
-1- Star this repo 😉 
+1- Star this repo 😉
 
 2- Add the generator to your Prisma schema
 
@@ -72,24 +83,22 @@ will generate the following files
 
 ![Joi Schemas](https://raw.githubusercontent.com/omar-dulaimi/prisma-joi-generator/master/joiSchemas.png)
 
-
 4- Use generated schemas somewhere in your API logic, like middleware or decorator
 
 ```ts
-import { PostCreateSchema } from "./prisma/generated/schemas";
+import { PostCreateSchema } from './prisma/generated/schemas';
 
-app.post('/blog', async (req, res, next) => { 
-  const { body } = req; 
-  const result = PostCreateSchema.validate(body); 
+app.post('/blog', async (req, res, next) => {
+  const { body } = req;
+  const result = PostCreateSchema.validate(body);
 });
 ```
 
 ## Additional Options
 
-| Option                |  Description                                    | Type      |  Default      |
-| --------------------- | ----------------------------------------------- | --------- | ------------- |
-| `output`              | Output directory for the generated joi schemas  | `string`  | `./generated` |
-
+| Option   |  Description                                   | Type     |  Default      |
+| -------- | ---------------------------------------------- | -------- | ------------- |
+| `output` | Output directory for the generated joi schemas | `string` | `./generated` |
 
 Use additional options in the `schema.prisma`
 
