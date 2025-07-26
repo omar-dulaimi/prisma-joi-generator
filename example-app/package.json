@@ -1,0 +1,31 @@
+{
+  "name": "prisma-joi-express-demo",
+  "version": "1.0.0",
+  "description": "Express.js demo app using Prisma Joi Generator with SQLite",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.12.0",
+    "express": "^4.19.2",
+    "joi": "^17.13.3",
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^24.1.0",
+    "@types/cors": "^2.8.17",
+    "@types/morgan": "^1.9.9",
+    "prisma": "^6.12.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "private": true
+}
