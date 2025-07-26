@@ -1,55 +1,148 @@
-import { parseEnvValue, getDMMF } from '@prisma/internals';
-import { EnvValue, GeneratorOptions } from '@prisma/generator-helper';
-import removeDir from './utils/removeDir';
+import {
+  DMMF,
+  EnvValue,
+  GeneratorConfig,
+  GeneratorOptions,
+} from '@prisma/generator-helper';
+import { getDMMF, parseEnvValue } from '@prisma/internals';
 import { promises as fs } from 'fs';
+import removeDir from './utils/removeDir';
 import Transformer from './transformer';
 
 export async function generate(options: GeneratorOptions) {
-  const outputDir = parseEnvValue(options.generator.output as EnvValue);
-  await fs.mkdir(outputDir, { recursive: true });
-  await removeDir(outputDir, true);
+  try {
+    await handleGeneratorOutputValue(options.generator.output as EnvValue);
 
-  const prismaClientProvider = options.otherGenerators.find(
-    (it) => parseEnvValue(it.provider) === 'prisma-client-js',
-  );
+    const prismaClientGeneratorConfig = 
+      getGeneratorConfigByProvider(options.otherGenerators, 'prisma-client-js') ||
+      getGeneratorConfigByProvider(options.otherGenerators, 'prisma-client');
 
-  const prismaClientDmmf = await getDMMF({
-    datamodel: options.datamodel,
-    previewFeatures: prismaClientProvider?.previewFeatures,
-  });
+    if (!prismaClientGeneratorConfig) {
+      throw new Error(
+        'Prisma Joi Generator requires either "prisma-client-js" or "prisma-client" generator to be present in your schema.prisma file.\n\n' +
+        'Please add one of the following to your schema.prisma:\n\n' +
+        '// For the legacy generator:\n' +
+        'generator client {\n' +
+        '  provider = "prisma-client-js"\n' +
+        '}\n\n' +
+        '// Or for the new generator (Prisma 6.12.0+):\n' +
+        'generator client {\n' +
+        '  provider = "prisma-client"\n' +
+        '}'
+      );
+    }
 
-  Transformer.setOutputPath(outputDir);
+    const prismaClientDmmf = await getDMMF({
+      datamodel: options.datamodel,
+      previewFeatures: prismaClientGeneratorConfig?.previewFeatures,
+    });
 
-  const enumTypes = [
-    ...prismaClientDmmf.schema.enumTypes.prisma,
-    ...(prismaClientDmmf.schema.enumTypes.model ?? []),
-  ];
+    checkForCustomPrismaClientOutputPath(prismaClientGeneratorConfig);
+
+    const modelOperations = prismaClientDmmf.mappings.modelOperations;
+    const inputObjectTypes = prismaClientDmmf.schema.inputObjectTypes.prisma;
+    const fieldRefTypes = prismaClientDmmf.schema.fieldRefTypes?.prisma || [];
+    // Filter out AndReturn types that were introduced in Prisma 6 but shouldn't have Joi schemas
+    const _outputObjectTypes =
+      prismaClientDmmf.schema.outputObjectTypes.prisma.filter(
+        (type) => !type.name.includes('AndReturn'),
+      );
+    const _enumTypes = prismaClientDmmf.schema.enumTypes;
+    const models: DMMF.Model[] = [...prismaClientDmmf.datamodel.models];
+
+    await generateEnumSchemas(
+      [...prismaClientDmmf.schema.enumTypes.prisma],
+      [...(prismaClientDmmf.schema.enumTypes.model ?? [])],
+    );
+
+    const mutableInputObjectTypes = [...inputObjectTypes];
+    
+    await generateFieldRefSchemas([...fieldRefTypes]);
+    await generateObjectSchemas(mutableInputObjectTypes);
+    await generateModelSchemas(
+      models,
+      [...modelOperations],
+    );
+    await generateIndex();
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+async function handleGeneratorOutputValue(generatorOutputValue: EnvValue) {
+  const outputDirectoryPath = parseEnvValue(generatorOutputValue);
+
+  // create the output directory and delete contents that might exist from a previous run
+  await fs.mkdir(outputDirectoryPath, { recursive: true });
+  const isRemoveContentsOnly = true;
+  await removeDir(outputDirectoryPath, isRemoveContentsOnly);
+
+  Transformer.setOutputPath(outputDirectoryPath);
+}
+
+function getGeneratorConfigByProvider(
+  generators: GeneratorConfig[],
+  provider: string,
+) {
+  return generators.find((it) => parseEnvValue(it.provider) === provider);
+}
+
+function checkForCustomPrismaClientOutputPath(
+  prismaClientGeneratorConfig: GeneratorConfig | undefined,
+) {
+  if (prismaClientGeneratorConfig?.isCustomOutput) {
+    // Store custom output path for future use if needed
+    // Transformer.setPrismaClientOutputPath(
+    //   prismaClientGeneratorConfig.output?.value as string,
+    // );
+  }
+}
+
+async function generateEnumSchemas(
+  prismaSchemaEnum: DMMF.SchemaEnum[],
+  modelSchemaEnum: DMMF.SchemaEnum[],
+) {
+  const enumTypes = [...prismaSchemaEnum, ...modelSchemaEnum];
   const enumNames = enumTypes.map((enumItem) => enumItem.name);
-
   Transformer.enumNames = enumNames ?? [];
-  const enumsObj = new Transformer({
+  const transformer = new Transformer({
     enumTypes,
   });
+  await transformer.printEnumSchemas();
+}
 
-  await enumsObj.printEnumSchemas();
-
-  for (
-    let i = 0;
-    i < prismaClientDmmf.schema.inputObjectTypes.prisma.length;
-    i += 1
-  ) {
-    const fields = prismaClientDmmf.schema.inputObjectTypes.prisma[i]?.fields;
-    const name = prismaClientDmmf.schema.inputObjectTypes.prisma[i]?.name;
-    const obj = new Transformer({ name, fields });
-    await obj.printSchemaObjects();
+async function generateFieldRefSchemas(fieldRefTypes: DMMF.FieldRefType[]) {
+  for (let i = 0; i < fieldRefTypes.length; i += 1) {
+    const fields = fieldRefTypes[i]?.fields;
+    const name = fieldRefTypes[i]?.name;
+    const transformer = new Transformer({ name, fields: [...(fields || [])] });
+    await transformer.printSchemaObjects();
   }
+}
 
-  const obj = new Transformer({
-    modelOperations: prismaClientDmmf.mappings.modelOperations,
+async function generateObjectSchemas(inputObjectTypes: DMMF.InputType[]) {
+  for (let i = 0; i < inputObjectTypes.length; i += 1) {
+    const fields = inputObjectTypes[i]?.fields;
+    const name = inputObjectTypes[i]?.name;
+    const transformer = new Transformer({ name, fields: [...(fields || [])] });
+    await transformer.printSchemaObjects();
+  }
+}
+
+async function generateModelSchemas(
+  models: DMMF.Model[],
+  modelOperations: DMMF.ModelMapping[],
+) {
+  const transformer = new Transformer({
+    modelOperations,
   });
-  await obj.printModelSchemas();
+  await transformer.printModelSchemas();
+}
 
-  await obj.printIndex('SCHEMAS');
-  await obj.printIndex('SCHEMA_OBJECTS');
-  await obj.printIndex('SCHEMA_ENUMS');
+async function generateIndex() {
+  const transformer = new Transformer({});
+  await transformer.printIndex('SCHEMAS');
+  await transformer.printIndex('SCHEMA_OBJECTS');
+  await transformer.printIndex('SCHEMA_ENUMS');
 }

@@ -56,7 +56,7 @@ export default class Transformer {
 
   getPrismaStringLine(
     field: PrismaDMMF.SchemaArg,
-    inputType: PrismaDMMF.SchemaArgInputType,
+    inputType: PrismaDMMF.InputTypeRef,
     inputsLength: number,
   ) {
     if (inputsLength === 1) {
@@ -118,7 +118,7 @@ export default class Transformer {
     if (inputsLength === 0) return lines;
 
     if (inputsLength === 1) {
-      lines = lines.map((inputType: PrismaDMMF.SchemaArgInputType) => {
+      lines = lines.map((inputType: PrismaDMMF.InputTypeRef) => {
         if (inputType.type === 'String') {
           return [
             `  ${field.name}: ${
@@ -170,7 +170,7 @@ export default class Transformer {
       });
     } else {
       const alternatives = lines.reduce(
-        (result: Array<string>, inputType: PrismaDMMF.SchemaArgInputType) => {
+        (result: Array<string>, inputType: PrismaDMMF.InputTypeRef) => {
           if (inputType.type === 'String') {
             result.push(
               inputType.isList
