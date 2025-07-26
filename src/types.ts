@@ -261,10 +261,11 @@ export function validateJoiGeneratorConfig(config: Partial<JoiGeneratorConfig>):
       enabledTypes = new Set(validatedConfig.includeTypes);
       break;
       
-    case 'blacklist':
+    case 'blacklist': {
       const allTypes: JoiFileType[] = ['create', 'update', 'upsert', 'unchecked', 'filter', 'orderBy', 'aggregate', 'groupBy', 'find', 'delete', 'enums', 'objects'];
       enabledTypes = new Set(allTypes.filter(type => !validatedConfig.excludeTypes.includes(type)));
       break;
+    }
       
     case 'selective':
       enabledTypes = new Set(

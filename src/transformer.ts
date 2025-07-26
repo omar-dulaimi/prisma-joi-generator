@@ -393,15 +393,15 @@ export default class Transformer {
         findUnique,
         findFirst,
         findMany,
-        // @ts-ignore
+        // @ts-expect-error - these properties exist on the model operations object
         createOne,
-        // @ts-ignore
+        // @ts-expect-error - these properties exist on the model operations object
         deleteOne,
-        // @ts-ignore
+        // @ts-expect-error - these properties exist on the model operations object
         updateOne,
         deleteMany,
         updateMany,
-        // @ts-ignore
+        // @ts-expect-error - these properties exist on the model operations object
         upsertOne,
         aggregate,
         groupBy,

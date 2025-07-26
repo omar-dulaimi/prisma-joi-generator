@@ -1,7 +1,6 @@
 // File Type Registry System for Prisma Joi Generator
 import type { DMMF as PrismaDMMF } from '@prisma/generator-helper';
 import { JoiFileType, ValidatedJoiGeneratorConfig } from './types';
-import Transformer from './transformer';
 import { logger } from './utils/logger';
 
 /**
@@ -385,7 +384,7 @@ export class FileTypeRegistry {
         perModel: true,
       },
       generator: async (context) => {
-        const { transformer, dmmf, config } = context;
+        const { transformer, dmmf } = context;
         
         if (dmmf?.modelOperations) {
           // Set the model operations on the transformer and run generation
@@ -418,7 +417,7 @@ export class FileTypeRegistry {
           perModel: true,
         },
         generator: async (context) => {
-          const { transformer, dmmf, config } = context;
+          const { transformer, dmmf } = context;
           
           if (dmmf?.modelOperations) {
             // Set the model operations on the transformer and run generation
@@ -448,7 +447,7 @@ export class FileTypeRegistry {
           category: 'input-objects',
           perModel: false,
         },
-        generator: async (context) => {
+        generator: async (_context) => {
           // These are currently generated as part of the objects type
           // The filtering logic will be implemented in the Transformer class
           // to selectively generate only the requested input object types

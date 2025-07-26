@@ -40,7 +40,6 @@ export class PathResolver {
    * Resolves the file path for a given file info
    */
   resolvePath(fileInfo: FileInfo): ResolvedPath {
-    const { type, fileName, modelName, category } = fileInfo;
     
     switch (this.config.directoryStrategy) {
       case 'flat':
@@ -77,7 +76,7 @@ export class PathResolver {
    * Resolves path for grouped directory structure (current behavior)
    */
   private resolveGroupedPath(fileInfo: FileInfo): ResolvedPath {
-    const { type, fileName, category } = fileInfo;
+    const { fileName, category } = fileInfo;
     const baseDir = this.config.directories.base;
     const filename = this.getFilename(fileInfo);
     
@@ -114,7 +113,7 @@ export class PathResolver {
    * Resolves path for by-model directory structure
    */
   private resolveByModelPath(fileInfo: FileInfo): ResolvedPath {
-    const { type, fileName, modelName, category } = fileInfo;
+    const { fileName, modelName, category } = fileInfo;
     const baseDir = this.config.directories.base;
     const filename = this.getFilename(fileInfo);
     
@@ -242,15 +241,18 @@ export class PathResolver {
           };
         }
         // Fall back to grouped behavior for non-model indexes
-        const groupedConfig = { ...this.config, directoryStrategy: 'grouped' as const };
-        const groupedResolver = new PathResolver(groupedConfig, this.outputPath);
-        return groupedResolver.resolveIndexPath(category);
+        {
+          const groupedConfig = { ...this.config, directoryStrategy: 'grouped' as const };
+          const groupedResolver = new PathResolver(groupedConfig, this.outputPath);
+          return groupedResolver.resolveIndexPath(category);
+        }
         
-      default:
+      default: {
         // Use grouped behavior as default
         const defaultConfig = { ...this.config, directoryStrategy: 'grouped' as const };
         const defaultResolver = new PathResolver(defaultConfig, this.outputPath);
         return defaultResolver.resolveIndexPath(category);
+      }
     }
   }
 
