@@ -302,12 +302,18 @@ model Post {
 }
 ```
 
-The generator creates:
+The generator creates different directory structures based on your configuration:
 
+#### Grouped Structure (Default)
 ```
 📁 generated/schemas/
-├── 📁 enums/           # Enum validation schemas
-├── 📁 objects/         # Input type schemas
+├── 📁 enums/           // Enum validation schemas
+│   ├── 📄 PostScalarFieldEnum.schema.ts
+│   └── 📄 UserScalarFieldEnum.schema.ts
+├── 📁 objects/         // Input type schemas  
+│   ├── 📄 UserCreateInput.schema.ts
+│   ├── 📄 UserWhereInput.schema.ts
+│   └── 📄 PostCreateInput.schema.ts
 ├── 📄 findManyUser.schema.ts
 ├── 📄 findUniqueUser.schema.ts
 ├── 📄 createOneUser.schema.ts
@@ -315,7 +321,40 @@ The generator creates:
 ├── 📄 deleteOneUser.schema.ts
 ├── 📄 findManyPost.schema.ts
 ├── 📄 createOnePost.schema.ts
-└── 📄 index.ts         # Barrel exports
+└── 📄 index.ts         // Barrel exports
+```
+
+#### By-Model Structure
+```
+📁 generated/schemas/
+├── 📁 enums/           // Shared enums
+├── 📁 models/
+│   ├── 📁 user/
+│   │   ├── 📄 findManyUser.schema.ts
+│   │   ├── 📄 createOneUser.schema.ts
+│   │   ├── 📁 objects/
+│   │   │   ├── 📄 UserCreateInput.schema.ts
+│   │   │   └── 📄 UserWhereInput.schema.ts
+│   │   └── 📄 index.ts
+│   └── 📁 post/
+│       ├── 📄 findManyPost.schema.ts
+│       ├── 📄 createOnePost.schema.ts
+│       ├── 📁 objects/
+│       └── 📄 index.ts
+└── 📄 index.ts
+```
+
+#### Flat Structure
+```
+📁 generated/schemas/
+├── 📄 findManyUser.schema.ts
+├── 📄 createOneUser.schema.ts
+├── 📄 UserCreateInput.schema.ts
+├── 📄 UserWhereInput.schema.ts
+├── 📄 PostScalarFieldEnum.schema.ts
+├── 📄 findManyPost.schema.ts
+├── 📄 createOnePost.schema.ts
+└── 📄 index.ts
 ```
 
 ### Version Compatibility
@@ -329,18 +368,265 @@ The generator creates:
 
 ## ⚙️ Configuration Options
 
+The Prisma Joi Generator offers powerful configuration options to customize file generation, organization, and filtering according to your project needs.
+
+### Core Configuration
+
 | Option | Description | Type | Default |
 |--------|-------------|------|---------|
 | `output` | Output directory for generated files | `string` | `"./generated"` |
 
-### Example Configuration
+### 🔧 File Type Filtering
 
+Control which types of validation schemas are generated:
+
+| File Type | Description | Default |
+|-----------|-------------|---------|
+| `create` | Create operation schemas (createOne, createMany) | `true` |
+| `update` | Update operation schemas (updateOne, updateMany) | `true` |
+| `upsert` | Upsert operation schemas | `true` |
+| `find` | Find operation schemas (findUnique, findFirst, findMany) | `true` |
+| `delete` | Delete operation schemas (deleteOne, deleteMany) | `true` |
+| `aggregate` | Aggregate operation schemas | `true` |
+| `groupBy` | GroupBy operation schemas | `true` |
+| `objects` | Input object schemas (WhereInput, CreateInput, etc.) | `true` |
+| `enums` | Enum validation schemas | `true` |
+| `filter` | Filter and where input schemas | `true` |
+| `orderBy` | OrderBy input schemas | `true` |
+| `unchecked` | Unchecked input schemas (without relations) | `true` |
+
+### 📁 Directory Organization
+
+Configure how generated files are organized:
+
+| Strategy | Description | Structure |
+|----------|-------------|-----------|
+| `grouped` | Organize by file type (default) | `schemas/`, `schemas/objects/`, `schemas/enums/` |
+| `flat` | All files in single directory | `schemas/` |
+| `by-model` | Organize by model name | `schemas/models/User/`, `schemas/models/Post/` |
+
+### Basic Configuration Examples
+
+#### Minimal Setup
 ```prisma
 generator joi {
   provider = "prisma-joi-generator"
   output   = "./src/schemas"
 }
 ```
+
+#### Custom File Types
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./generated/validation"
+  
+  // Only generate create and find operations
+  create = "true"
+  find = "true"
+  update = "false"
+  delete = "false"
+  objects = "true"
+  enums = "true"
+}
+```
+
+#### Flat Directory Structure
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./schemas"
+  directoryStrategy = "flat"
+}
+```
+
+### 🎯 Common Use Cases
+
+#### REST API - Minimal Set
+Perfect for REST APIs that only need create and read operations:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./src/validation/schemas"
+  
+  // Only essential operations
+  create = "true"
+  find = "true"
+  update = "false"
+  delete = "false"
+  upsert = "false"
+  aggregate = "false"
+  groupBy = "false"
+  
+  // Required supporting schemas
+  objects = "true"
+  enums = "true"
+}
+```
+
+#### Full Feature API
+Complete validation for complex applications:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./schemas"
+  directoryStrategy = "by-model"
+  
+  // All operations enabled (default behavior)
+  create = "true"
+  update = "true"
+  upsert = "true"
+  find = "true"
+  delete = "true"
+  aggregate = "true"
+  groupBy = "true"
+  objects = "true"
+  enums = "true"
+  filter = "true"
+  orderBy = "true"
+  unchecked = "true"
+}
+```
+
+#### Read-Only API
+For analytics dashboards or reporting systems:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./generated/read-schemas"
+  
+  // Only read operations
+  create = "false"
+  update = "false"
+  delete = "false"
+  upsert = "false"
+  find = "true"
+  aggregate = "true"
+  groupBy = "true"
+  
+  // Supporting schemas for filtering and sorting
+  objects = "true"
+  enums = "true"
+  filter = "true"
+  orderBy = "true"
+}
+```
+
+#### GraphQL Integration
+Optimized for GraphQL resolvers with custom directory structure:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./src/graphql/validation"
+  directoryStrategy = "grouped"
+  
+  // GraphQL typically needs input validation
+  create = "true"
+  update = "true"
+  find = "true"
+  delete = "true"
+  objects = "true"
+  enums = "true"
+  filter = "true"
+  
+  // GraphQL handles its own aggregation
+  aggregate = "false"
+  groupBy = "false"
+}
+```
+
+### 📋 Advanced Configuration Reference
+
+#### Filter Strategy Options
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  
+  // Strategy 1: Selective (default) - Use individual flags
+  create = "true"
+  find = "false"
+  
+  // Strategy 2: Whitelist - Only generate specified types
+  filterStrategy = "whitelist"
+  includeTypes = "create,find,objects,enums"
+  
+  // Strategy 3: Blacklist - Generate all except specified
+  filterStrategy = "blacklist"
+  excludeTypes = "aggregate,groupBy,unchecked"
+}
+```
+
+#### Directory Customization
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./validation"
+  
+  // Directory structure
+  directoryStrategy = "grouped"
+  
+  // Custom directory names
+  baseDirectory = "schemas"
+  objectsDirectory = "inputs"
+  enumsDirectory = "constants"
+  modelsDirectory = "entities"
+}
+```
+
+#### File Naming Patterns
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  
+  // Customize file naming patterns
+  schemaFilePattern = "{operation}.validation"
+  objectFilePattern = "{name}.input"
+  enumFilePattern = "{name}.enum"
+}
+```
+
+### 🔄 Migration Guide
+
+#### Upgrading from Basic to Filtered Generation
+
+**Before (v0.1.x):**
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./schemas"
+}
+```
+
+**After (v0.2.x+):**
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./schemas"
+  
+  // Explicitly enable only needed types for better performance
+  create = "true"
+  find = "true"
+  update = "true"
+  delete = "false"    // Skip if not needed
+  aggregate = "false" // Skip if not needed
+  
+  objects = "true"
+  enums = "true"
+}
+```
+
+#### Benefits of Migration:
+- 🚀 **Faster generation** - Only creates needed schemas
+- 📦 **Smaller bundle size** - Fewer files to import
+- 🎯 **Better organization** - Clear intent in configuration
+- 🛡️ **Type safety** - Prevents accidental usage of disabled operations
 
 ## 🔧 Advanced Usage
 
@@ -531,6 +817,78 @@ Examples:
 - Verify Node.js version compatibility (18+)
 - Clear node_modules and reinstall dependencies
 
+### 🔧 Configuration Issues
+
+**No files generated with selective filtering**
+- Ensure at least one file type is enabled (e.g., `create = "true"`)
+- Check that `objects = "true"` and `enums = "true"` are enabled for supporting schemas
+- Verify your configuration syntax uses string values (`"true"` not `true`)
+
+**Missing operation schemas (createOne, findMany, etc.)**
+- Confirm the operation type is enabled in configuration (e.g., `create = "true"` for createOne schemas)
+- Check that required dependencies are enabled (`objects` and `enums`)
+- Ensure your models define the operations you're trying to generate
+
+**Directory structure not as expected**
+- Verify `directoryStrategy` is set correctly (`"grouped"`, `"flat"`, or `"by-model"`)
+- Check custom directory names if using directory customization
+- Ensure output path exists and has write permissions
+
+**Configuration parsing errors**
+- Use string values for boolean flags: `create = "true"` not `create = true`
+- Use comma-separated lists for arrays: `includeTypes = "create,find,objects"`
+- Check that all configuration keys are spelled correctly
+
+**Filter strategy not working**
+```prisma
+// ❌ Wrong: Mixed strategies
+generator joi {
+  provider = "prisma-joi-generator"
+  filterStrategy = "whitelist"
+  create = "true"  // Don't mix individual flags with strategies
+}
+
+// ✅ Correct: Consistent strategy
+generator joi {
+  provider = "prisma-joi-generator"
+  filterStrategy = "whitelist"
+  includeTypes = "create,find,objects,enums"
+}
+```
+
+**Performance issues with large schemas**
+- Enable only needed file types to reduce generation time
+- Use `directoryStrategy = "flat"` for smaller projects
+- Consider splitting large schemas into multiple generators
+
+**TypeScript import errors with filtered schemas**
+- Regenerate schemas after changing configuration
+- Update your imports to match the generated file structure
+- Check that index files are generated (`generateIndex = "true"`)
+
+### 📊 Configuration Validation
+
+To debug configuration issues, you can temporarily enable all types and gradually disable:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./debug-schemas"
+  
+  // Enable everything first
+  create = "true"
+  update = "true"
+  find = "true"
+  delete = "true"
+  objects = "true"
+  enums = "true"
+  
+  // Then gradually disable what you don't need
+  // aggregate = "false"
+  // groupBy = "false"
+}
+```
+
 ### Getting Help
 
 - 🐛 **Bug Reports**: [Create a bug report](https://github.com/omar-dulaimi/prisma-joi-generator/issues/new)
@@ -574,10 +932,10 @@ We have comprehensive tests covering:
 
 Run specific test suites:
 ```bash
-npm run test:basic           # Basic functionality
-npm run test:multi           # Multi-provider testing  
-npm run test:coverage        # Coverage reports
-npm run test:comprehensive   # Full test suite
+npm run test:basic           // Basic functionality
+npm run test:multi           // Multi-provider testing  
+npm run test:coverage        // Coverage reports
+npm run test:comprehensive   // Full test suite
 ```
 
 ### Contribution Guidelines
@@ -592,8 +950,8 @@ npm run test:comprehensive   # Full test suite
 
 We use ESLint and Prettier for consistent code formatting:
 ```bash
-npm run lint      # Check and fix linting issues
-npm run format    # Format code with Prettier
+npm run lint      // Check and fix linting issues
+npm run format    // Format code with Prettier
 ```
 
 ### Release Process
