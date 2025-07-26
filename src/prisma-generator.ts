@@ -42,13 +42,7 @@ export async function generate(options: GeneratorOptions) {
     const modelOperations = prismaClientDmmf.mappings.modelOperations;
     const inputObjectTypes = prismaClientDmmf.schema.inputObjectTypes.prisma;
     const fieldRefTypes = prismaClientDmmf.schema.fieldRefTypes?.prisma || [];
-    // Filter out AndReturn types that were introduced in Prisma 6 but shouldn't have Joi schemas
-    const _outputObjectTypes =
-      prismaClientDmmf.schema.outputObjectTypes.prisma.filter(
-        (type) => !type.name.includes('AndReturn'),
-      );
-    const _enumTypes = prismaClientDmmf.schema.enumTypes;
-    const models: DMMF.Model[] = [...prismaClientDmmf.datamodel.models];
+    // Note: outputObjectTypes and enumTypes are available but not currently used in generation
 
     await generateEnumSchemas(
       [...prismaClientDmmf.schema.enumTypes.prisma],
@@ -60,7 +54,7 @@ export async function generate(options: GeneratorOptions) {
     await generateFieldRefSchemas([...fieldRefTypes]);
     await generateObjectSchemas(mutableInputObjectTypes);
     await generateModelSchemas(
-      models,
+      [...prismaClientDmmf.datamodel.models],
       [...modelOperations],
     );
     await generateIndex();

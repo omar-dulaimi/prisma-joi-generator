@@ -92,13 +92,13 @@ describe('Generated Joi Schemas', () => {
       // Check that main schemas are exported
       expect(schemas.UserCreateSchema).toBeDefined();
       expect(schemas.UserFindManySchema).toBeDefined();
-      expect(schemas.UserUpdateSchema).toBeDefined();
-      expect(schemas.UserDeleteSchema).toBeDefined();
+      expect(schemas.UserUpdateOneSchema).toBeDefined();
+      expect(schemas.UserDeleteManySchema).toBeDefined();
       
       expect(schemas.PostCreateSchema).toBeDefined();
       expect(schemas.PostFindManySchema).toBeDefined();
-      expect(schemas.PostUpdateSchema).toBeDefined();
-      expect(schemas.PostDeleteSchema).toBeDefined();
+      expect(schemas.PostUpdateOneSchema).toBeDefined();
+      expect(schemas.PostDeleteManySchema).toBeDefined();
     });
 
     it('should export enum schemas', async () => {

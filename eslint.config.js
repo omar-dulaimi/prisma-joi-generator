@@ -7,6 +7,7 @@ export default [
   js.configs.recommended,
   {
     files: ['**/*.ts', '**/*.tsx'],
+    ignores: ['tests/**/*.js', 'tests/**/*.d.ts', 'tests/**/*.js.map'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
