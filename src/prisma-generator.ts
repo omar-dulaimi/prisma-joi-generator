@@ -8,10 +8,30 @@ import { getDMMF, parseEnvValue } from '@prisma/internals';
 import { promises as fs } from 'fs';
 import removeDir from './utils/removeDir';
 import Transformer from './transformer';
+import { parseGeneratorConfig, ValidatedJoiGeneratorConfig } from './types';
+import { fileTypeRegistry, GenerationContext } from './registry';
+import { logger } from './utils/logger';
 
 export async function generate(options: GeneratorOptions) {
+  const timer = logger.timer('Total generation');
+  
   try {
-    await handleGeneratorOutputValue(options.generator.output as EnvValue);
+    logger.info('Starting Prisma Joi Generator');
+    
+    // Parse and validate generator configuration
+    const parseTimer = logger.timer('Configuration parsing');
+    const config = parseGeneratorConfig(options);
+    parseTimer();
+    
+    // Log configuration summary
+    logger.configSummary({
+      strategy: config.filterStrategy,
+      directoryStrategy: config.directoryStrategy,
+      enabledTypes: Array.from(config.enabledTypes),
+      outputPath: parseEnvValue(options.generator.output as EnvValue),
+    });
+    
+    await handleGeneratorOutputValue(options.generator.output as EnvValue, config);
 
     const prismaClientGeneratorConfig = 
       getGeneratorConfigByProvider(options.otherGenerators, 'prisma-client-js') ||
@@ -32,39 +52,102 @@ export async function generate(options: GeneratorOptions) {
       );
     }
 
+    logger.debug('Loading Prisma DMMF');
+    const dmmfTimer = logger.timer('DMMF loading');
     const prismaClientDmmf = await getDMMF({
       datamodel: options.datamodel,
       previewFeatures: prismaClientGeneratorConfig?.previewFeatures,
     });
+    dmmfTimer();
 
     checkForCustomPrismaClientOutputPath(prismaClientGeneratorConfig);
 
-    const modelOperations = prismaClientDmmf.mappings.modelOperations;
-    const inputObjectTypes = prismaClientDmmf.schema.inputObjectTypes.prisma;
-    const fieldRefTypes = prismaClientDmmf.schema.fieldRefTypes?.prisma || [];
-    // Note: outputObjectTypes and enumTypes are available but not currently used in generation
-
-    await generateEnumSchemas(
-      [...prismaClientDmmf.schema.enumTypes.prisma],
-      [...(prismaClientDmmf.schema.enumTypes.model ?? [])],
+    logger.generationStart(
+      prismaClientDmmf.datamodel.models.length,
+      Array.from(config.enabledTypes)
     );
 
-    const mutableInputObjectTypes = [...inputObjectTypes];
+    // Create required directories based on configuration
+    const dirTimer = logger.timer('Directory creation');
+    await createRequiredDirectories(config, [...prismaClientDmmf.datamodel.models]);
+    dirTimer();
+
+    // Set up enum names for the transformer (global state needed for cross-references)
+    const allEnumTypes = [
+      ...prismaClientDmmf.schema.enumTypes.prisma,
+      ...(prismaClientDmmf.schema.enumTypes.model ?? [])
+    ];
+    Transformer.enumNames = allEnumTypes.map((enumItem) => enumItem.name) ?? [];
+
+    // Prepare generation context
+    const transformer = new Transformer({});
+    const generationContext: GenerationContext = {
+      transformer,
+      dmmf: {
+        models: [...prismaClientDmmf.datamodel.models],
+        inputObjectTypes: [...prismaClientDmmf.schema.inputObjectTypes.prisma],
+        enumTypes: allEnumTypes,
+        fieldRefTypes: [...(prismaClientDmmf.schema.fieldRefTypes?.prisma || [])],
+        modelOperations: [...prismaClientDmmf.mappings.modelOperations],
+      },
+      config,
+    };
+
+    // Execute generation using the registry system
+    logger.debug('Starting file generation');
+    const generationTimer = logger.timer('Schema generation');
+    await fileTypeRegistry.executeGeneration(generationContext);
+    generationTimer();
+
+    // Generate index files if enabled
+    if (config.generateIndex) {
+      logger.debug('Generating index files');
+      const indexTimer = logger.timer('Index generation');
+      await generateIndex();
+      indexTimer();
+    }
+
+    // Count generated files for summary
+    const fileCount = await countGeneratedFiles(parseEnvValue(options.generator.output as EnvValue));
+    timer();
+    logger.generationComplete(fileCount);
     
-    await generateFieldRefSchemas([...fieldRefTypes]);
-    await generateObjectSchemas(mutableInputObjectTypes);
-    await generateModelSchemas(
-      [...prismaClientDmmf.datamodel.models],
-      [...modelOperations],
-    );
-    await generateIndex();
   } catch (error) {
-    console.error(error);
+    timer();
+    logger.error('Generation failed', error);
     throw error;
   }
 }
 
-async function handleGeneratorOutputValue(generatorOutputValue: EnvValue) {
+async function createRequiredDirectories(config: ValidatedJoiGeneratorConfig, models: DMMF.Model[]) {
+  const pathResolver = Transformer.getPathResolver();
+  if (!pathResolver) {
+    logger.debug('No path resolver available, using legacy directory structure');
+    return; // Fallback to current behavior
+  }
+
+  const modelNames = models.map(model => model.name);
+  const requiredDirectories = pathResolver.getRequiredDirectories(modelNames);
+  
+  logger.debug(`Creating ${requiredDirectories.length} directories`);
+  for (const directory of requiredDirectories) {
+    const absolutePath = pathResolver.getAbsolutePath(directory);
+    logger.directoryCreation(directory, config.directoryStrategy);
+    await fs.mkdir(absolutePath, { recursive: true });
+  }
+}
+
+async function countGeneratedFiles(outputPath: string): Promise<number> {
+  try {
+    const files = await fs.readdir(outputPath, { recursive: true });
+    return files.filter(file => typeof file === 'string' && file.endsWith('.ts')).length;
+  } catch (error) {
+    logger.warn('Could not count generated files', error);
+    return 0;
+  }
+}
+
+async function handleGeneratorOutputValue(generatorOutputValue: EnvValue, config: ValidatedJoiGeneratorConfig) {
   const outputDirectoryPath = parseEnvValue(generatorOutputValue);
 
   // create the output directory and delete contents that might exist from a previous run
@@ -73,6 +156,7 @@ async function handleGeneratorOutputValue(generatorOutputValue: EnvValue) {
   await removeDir(outputDirectoryPath, isRemoveContentsOnly);
 
   Transformer.setOutputPath(outputDirectoryPath);
+  Transformer.setConfig(config);
 }
 
 function getGeneratorConfigByProvider(
@@ -93,46 +177,7 @@ function checkForCustomPrismaClientOutputPath(
   }
 }
 
-async function generateEnumSchemas(
-  prismaSchemaEnum: DMMF.SchemaEnum[],
-  modelSchemaEnum: DMMF.SchemaEnum[],
-) {
-  const enumTypes = [...prismaSchemaEnum, ...modelSchemaEnum];
-  const enumNames = enumTypes.map((enumItem) => enumItem.name);
-  Transformer.enumNames = enumNames ?? [];
-  const transformer = new Transformer({
-    enumTypes,
-  });
-  await transformer.printEnumSchemas();
-}
-
-async function generateFieldRefSchemas(fieldRefTypes: DMMF.FieldRefType[]) {
-  for (let i = 0; i < fieldRefTypes.length; i += 1) {
-    const fields = fieldRefTypes[i]?.fields;
-    const name = fieldRefTypes[i]?.name;
-    const transformer = new Transformer({ name, fields: [...(fields || [])] });
-    await transformer.printSchemaObjects();
-  }
-}
-
-async function generateObjectSchemas(inputObjectTypes: DMMF.InputType[]) {
-  for (let i = 0; i < inputObjectTypes.length; i += 1) {
-    const fields = inputObjectTypes[i]?.fields;
-    const name = inputObjectTypes[i]?.name;
-    const transformer = new Transformer({ name, fields: [...(fields || [])] });
-    await transformer.printSchemaObjects();
-  }
-}
-
-async function generateModelSchemas(
-  models: DMMF.Model[],
-  modelOperations: DMMF.ModelMapping[],
-) {
-  const transformer = new Transformer({
-    modelOperations,
-  });
-  await transformer.printModelSchemas();
-}
+// Legacy generation functions removed - now handled by FileTypeRegistry
 
 async function generateIndex() {
   const transformer = new Transformer({});

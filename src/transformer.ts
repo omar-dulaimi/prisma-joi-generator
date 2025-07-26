@@ -1,6 +1,8 @@
 import type { DMMF as PrismaDMMF } from '@prisma/generator-helper';
 import path from 'path';
 import { writeFileSafely } from './utils/writeFileSafely';
+import { ValidatedJoiGeneratorConfig } from './types';
+import { PathResolver, createPathResolver, FileInfo } from './pathResolver';
 
 export default class Transformer {
   name?: string;
@@ -13,6 +15,8 @@ export default class Transformer {
   static generatedSchemaObjectFiles: Array<string> = [];
   static generatedSchemaEnumFiles: Array<string> = [];
   private static outputPath?: string;
+  private static config?: ValidatedJoiGeneratorConfig;
+  private static pathResolver?: PathResolver;
   constructor({
     name,
     fields,
@@ -34,10 +38,58 @@ export default class Transformer {
 
   static setOutputPath(outPath: string) {
     this.outputPath = outPath;
+    if (this.config) {
+      this.pathResolver = createPathResolver(this.config, outPath);
+    }
   }
 
   static getOutputPath() {
     return this.outputPath;
+  }
+
+  static setConfig(config: ValidatedJoiGeneratorConfig) {
+    this.config = config;
+    if (this.outputPath) {
+      this.pathResolver = createPathResolver(config, this.outputPath);
+    }
+  }
+
+  static getConfig() {
+    return this.config;
+  }
+
+  static getPathResolver() {
+    return this.pathResolver;
+  }
+
+  /**
+   * Resolves file path using the current configuration
+   */
+  private resolveFilePath(fileInfo: FileInfo): string {
+    if (!Transformer.pathResolver) {
+      // Fallback to legacy behavior
+      return this.getLegacyPath(fileInfo);
+    }
+    
+    const resolved = Transformer.pathResolver.resolvePath(fileInfo);
+    return Transformer.pathResolver.getAbsolutePath(resolved.filePath);
+  }
+
+  /**
+   * Legacy path resolution for backward compatibility
+   */
+  private getLegacyPath(fileInfo: FileInfo): string {
+    const { category, fileName } = fileInfo;
+    
+    switch (category) {
+      case 'object':
+        return path.join(Transformer.outputPath!, `schemas/objects/${fileName}.schema.ts`);
+      case 'enum':
+        return path.join(Transformer.outputPath!, `schemas/enums/${fileName}.schema.ts`);
+      case 'schema':
+      default:
+        return path.join(Transformer.outputPath!, `schemas/${fileName}.schema.ts`);
+    }
   }
 
   addSchemaImport(name: string) {
@@ -315,17 +367,26 @@ export default class Transformer {
         return value;
       });
 
+    const filePath = this.resolveFilePath({
+      type: 'objects',
+      fileName: this.name!,
+      modelName: Transformer.pathResolver?.extractModelName(this.name!),
+      category: 'object',
+    });
+    
     await writeFileSafely(
-      path.join(
-        Transformer.outputPath,
-        `schemas/objects/${this.name}.schema.ts`,
-      ),
+      filePath,
       this.getFinalForm(joiStringFields as unknown as string),
     );
     Transformer.generatedSchemaObjectFiles.push(`./${this.name}.schema`);
   }
 
   async printModelSchemas() {
+    const config = Transformer.config;
+    if (!config) {
+      throw new Error('Configuration not set. Call Transformer.setConfig() first.');
+    }
+
     for (const model of this.modelOperations ?? []) {
       const {
         model: modelName,
@@ -346,12 +407,20 @@ export default class Transformer {
         groupBy,
       } = model;
 
-      if (findUnique) {
+      if (findUnique && config.enabledTypes.has('find')) {
         const imports = [
           `import { ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
         ];
+        
+        const filePath = this.resolveFilePath({
+          type: 'find',
+          fileName: findUnique,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${findUnique}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject) }).required()`,
             `${modelName}FindUnique`,
@@ -360,13 +429,20 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${findUnique}.schema`);
       }
 
-      if (findFirst) {
+      if (findFirst && config.enabledTypes.has('find')) {
         const imports = [
           `import { ${modelName}WhereInputSchemaObject, ${modelName}OrderByWithRelationInputSchemaObject, ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
           `import { ${modelName}ScalarFieldEnumSchema } from './enums'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'find',
+          fileName: findFirst,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${findFirst}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereInputSchemaObject), orderBy: Joi.object().keys(${modelName}OrderByWithRelationInputSchemaObject), cursor: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject), take: Joi.number(), skip: Joi.number(), distinct: Joi.array().items(${modelName}ScalarFieldEnumSchema) }).required()`,
             `${modelName}FindFirst`,
@@ -375,13 +451,20 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${findFirst}.schema`);
       }
 
-      if (findMany) {
+      if (findMany && config.enabledTypes.has('find')) {
         const imports = [
           `import { ${modelName}WhereInputSchemaObject, ${modelName}OrderByWithRelationInputSchemaObject, ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
           `import { ${modelName}ScalarFieldEnumSchema } from './enums'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'find',
+          fileName: findMany,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${findMany}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereInputSchemaObject), orderBy: Joi.object().keys(${modelName}OrderByWithRelationInputSchemaObject), cursor: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject), take: Joi.number(), skip: Joi.number(), distinct: Joi.array().items(${modelName}ScalarFieldEnumSchema)  }).required()`,
             `${modelName}FindMany`,
@@ -390,12 +473,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${findMany}.schema`);
       }
 
-      if (createOne) {
+      if (createOne && config.enabledTypes.has('create')) {
         const imports = [
           `import { ${modelName}CreateInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'create',
+          fileName: createOne,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${createOne}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ data: Joi.object().keys(${modelName}CreateInputSchemaObject)  }).required()`,
             `${modelName}Create`,
@@ -404,15 +494,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${createOne}.schema`);
       }
 
-      if (deleteOne) {
+      if (deleteOne && config.enabledTypes.has('delete')) {
         const imports = [
           `import { ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'delete',
+          fileName: deleteOne,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(
-            Transformer.outputPath,
-            `schemas/${deleteOne}.schema.ts`,
-          ),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject)  }).required()`,
             `${modelName}DeleteOne`,
@@ -421,12 +515,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${deleteOne}.schema`);
       }
 
-      if (deleteMany) {
+      if (deleteMany && config.enabledTypes.has('delete')) {
         const imports = [
           `import { ${modelName}WhereInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'delete',
+          fileName: deleteMany,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${deleteMany}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereInputSchemaObject)  }).required()`,
             `${modelName}DeleteMany`,
@@ -435,12 +536,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${deleteMany}.schema`);
       }
 
-      if (updateOne) {
+      if (updateOne && config.enabledTypes.has('update')) {
         const imports = [
           `import { ${modelName}UpdateInputSchemaObject, ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'update',
+          fileName: updateOne,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${updateOne}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ data: Joi.object().keys(${modelName}UpdateInputSchemaObject), where: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject)  }).required()`,
             `${modelName}UpdateOne`,
@@ -449,12 +557,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${updateOne}.schema`);
       }
 
-      if (updateMany) {
+      if (updateMany && config.enabledTypes.has('update')) {
         const imports = [
           `import { ${modelName}UpdateManyMutationInputSchemaObject, ${modelName}WhereInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'update',
+          fileName: updateMany,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${updateMany}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ data: Joi.object().keys(${modelName}UpdateManyMutationInputSchemaObject), where: Joi.object().keys(${modelName}WhereInputSchemaObject)  }).required()`,
             `${modelName}UpdateMany`,
@@ -463,12 +578,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${updateMany}.schema`);
       }
 
-      if (upsertOne) {
+      if (upsertOne && config.enabledTypes.has('upsert')) {
         const imports = [
           `import { ${modelName}WhereUniqueInputSchemaObject, ${modelName}CreateInputSchemaObject, ${modelName}UpdateInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'upsert',
+          fileName: upsertOne,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${upsertOne}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject), data: Joi.object().keys(${modelName}CreateInputSchemaObject), update: Joi.object().keys(${modelName}UpdateInputSchemaObject)  }).required()`,
             `${modelName}Upsert`,
@@ -477,12 +599,19 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${upsertOne}.schema`);
       }
 
-      if (aggregate) {
+      if (aggregate && config.enabledTypes.has('aggregate')) {
         const imports = [
           `import { ${modelName}WhereInputSchemaObject, ${modelName}OrderByWithRelationInputSchemaObject, ${modelName}WhereUniqueInputSchemaObject } from './objects'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'aggregate',
+          fileName: aggregate,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${aggregate}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereInputSchemaObject), orderBy: Joi.object().keys(${modelName}OrderByWithRelationInputSchemaObject), cursor: Joi.object().keys(${modelName}WhereUniqueInputSchemaObject), take: Joi.number(), skip: Joi.number()  }).required()`,
             `${modelName}Aggregate`,
@@ -491,13 +620,20 @@ export default class Transformer {
         Transformer.generatedSchemaFiles.push(`./${aggregate}.schema`);
       }
 
-      if (groupBy) {
+      if (groupBy && config.enabledTypes.has('groupBy')) {
         const imports = [
           `import { ${modelName}WhereInputSchemaObject, ${modelName}OrderByWithAggregationInputSchemaObject, ${modelName}ScalarWhereWithAggregatesInputSchemaObject } from './objects'`,
           `import { ${modelName}ScalarFieldEnumSchema } from './enums'`,
         ];
+        const filePath = this.resolveFilePath({
+          type: 'groupBy',
+          fileName: groupBy,
+          modelName,
+          category: 'schema',
+        });
+        
         await writeFileSafely(
-          path.join(Transformer.outputPath, `schemas/${groupBy}.schema.ts`),
+          filePath,
           `${this.getImportsForSchemas(imports)}${this.addExportSchema(
             `Joi.object().keys({ where: Joi.object().keys(${modelName}WhereInputSchemaObject), orderBy: Joi.object().keys(${modelName}OrderByWithAggregationInputSchemaObject), having: Joi.object().keys(${modelName}ScalarWhereWithAggregatesInputSchemaObject), take: Joi.number(), skip: Joi.number(), by: Joi.array().items(${modelName}ScalarFieldEnumSchema).required()  }).required()`,
             `${modelName}GroupBy`,
@@ -534,8 +670,14 @@ export default class Transformer {
     for (const enumType of this.enumTypes ?? []) {
       const { name, values } = enumType;
 
+      const filePath = this.resolveFilePath({
+        type: 'enums',
+        fileName: name,
+        category: 'enum',
+      });
+      
       await writeFileSafely(
-        path.join(Transformer.outputPath, `schemas/enums/${name}.schema.ts`),
+        filePath,
         `${this.getImportJoi()}\n${this.addExportSchema(
           `Joi.string().valid(...${JSON.stringify(values)})`,
           `${name}`,
