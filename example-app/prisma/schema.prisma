@@ -1,0 +1,80 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Use our local Joi generator
+generator joi {
+  provider = "node /home/omar/Desktop/NewFolder/libs/prisma-joi-generator/lib/generator.js"
+  output   = "./generated/schemas"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  bio       String?
+  avatar    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  posts     Post[]
+
+  @@map("users")
+}
+
+model Post {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String?
+  published   Boolean  @default(false)
+  viewCount   Int      @default(0)
+  likes       Int      @default(0)
+  slug        String?  @unique
+  tags        String?  // JSON string of tags array
+  featured    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  
+  author      User?    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId    Int?
+  
+  comments    Comment[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId    Int
+  
+  author    String   // Simple author name for this demo
+  email     String?  // Optional email
+
+  @@map("comments")
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  slug        String   @unique
+  color       String?  // Hex color code
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("categories")
+}
