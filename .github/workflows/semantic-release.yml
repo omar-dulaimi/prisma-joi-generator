@@ -8,6 +8,13 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      # Required for npm Trusted Publishing: the npm plugin requests a GitHub OIDC token and
+      # exchanges it with the registry for a short-lived credential.
+      id-token: write
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     
     steps:
@@ -20,7 +27,9 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20.x'
+        # Trusted publishing needs npm >= 11.5.1, which ships with Node 24. Node 20 carries npm 10
+        # and cannot perform the OIDC exchange.
+        node-version: '24.x'
         cache: 'npm'
         
     - name: Install dependencies
@@ -51,5 +60,5 @@ jobs:
     - name: Semantic Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # No NPM_TOKEN: auth is the OIDC exchange. Setting one would write a conflicting .npmrc.
       run: npx semantic-release
