@@ -205,8 +205,33 @@ export default class Transformer {
             }`,
             field,
           ];
+        } else if (
+          inputType.type === 'Decimal' ||
+          inputType.type === 'BigInt'
+        ) {
+          // Prisma accepts either form over the wire, and a Decimal large enough to matter arrives
+          // as a string, since a JS number cannot hold it. Joi has no bigint type.
+          const scalar = 'Joi.alternatives().try(Joi.number(), Joi.string())';
+          return [
+            `  ${field.name}: ${
+              inputType.isList ? `Joi.array().items(${scalar})` : scalar
+            }`,
+            field,
+          ];
+        } else if (inputType.type === 'Bytes') {
+          return [
+            `  ${field.name}: ${
+              inputType.isList
+                ? 'Joi.array().items(Joi.binary())'
+                : 'Joi.binary()'
+            }`,
+            field,
+          ];
         } else {
-          if (inputType.namespace === 'prisma') {
+          if (
+            inputType.namespace === 'prisma' ||
+            inputType.namespace === 'model'
+          ) {
             if (inputType.type !== this.name) {
               this.addSchemaImport(inputType.type as string);
             }
@@ -242,7 +267,10 @@ export default class Transformer {
                 : 'Joi.boolean()',
             );
           } else {
-            if (inputType.namespace === 'prisma') {
+            if (
+            inputType.namespace === 'prisma' ||
+            inputType.namespace === 'model'
+          ) {
               if (inputType.type !== this.name) {
                 this.addSchemaImport(inputType.type as string);
               }
@@ -252,6 +280,24 @@ export default class Transformer {
             } else if (inputType.type === 'Json') {
               result.push(
                 inputType.isList ? 'Joi.array().items(Joi.any())' : 'Joi.any()',
+              );
+            } else if (inputType.type === 'DateTime') {
+              result.push(
+                inputType.isList ? 'Joi.array().items(Joi.date())' : 'Joi.date()',
+              );
+            } else if (
+              inputType.type === 'Decimal' ||
+              inputType.type === 'BigInt'
+            ) {
+              const scalar = 'Joi.alternatives().try(Joi.number(), Joi.string())';
+              result.push(
+                inputType.isList ? `Joi.array().items(${scalar})` : scalar,
+              );
+            } else if (inputType.type === 'Bytes') {
+              result.push(
+                inputType.isList
+                  ? 'Joi.array().items(Joi.binary())'
+                  : 'Joi.binary()',
               );
             }
           }
