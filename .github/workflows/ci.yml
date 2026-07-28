@@ -2,108 +2,205 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  verify:
+    name: Typecheck, lint, test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
-    
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18.x, 20.x, 22.x]
-    
+        node-version: ['22.x', '24.x']
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build project
-      run: npm run gen-example
-      
-    - name: Run type checking
-      run: npm run test:type-check
-      
-    - name: Run linting
-      run: npm run lint || echo "Linting failed but continuing for now"
-      continue-on-error: true
-      
-    # Vitest 3.x requires Node 20.19.0+ or 22.12.0+, so skip tests for Node 18
-    - name: Run basic tests
-      if: matrix.node-version != '18.x'
-      run: npm run test:basic || echo "Tests not yet implemented - continuing CI"
-      continue-on-error: true
-      
-    - name: Run comprehensive tests
-      if: matrix.node-version != '18.x'
-      run: npm run test:coverage:comprehensive || echo "Comprehensive tests not yet implemented"
-      continue-on-error: true
-      timeout-minutes: 10
-      
-    - name: Generate MongoDB schemas
-      if: matrix.node-version != '18.x'
-      run: npx prisma generate --schema="prisma/schemas/mongodb/schema.prisma" || echo "MongoDB schema not available yet"
-      continue-on-error: true
-      
-    - name: Run MongoDB tests
-      if: matrix.node-version != '18.x'
-      run: npm run test:coverage:mongodb || echo "MongoDB tests not yet implemented"
-      continue-on-error: true
-      timeout-minutes: 10
-      
-    - name: Run multi-provider tests (sequential)
-      if: matrix.node-version != '18.x'
-      run: npm run test:multi:sequential || echo "Multi-provider tests not yet implemented"
-      continue-on-error: true
-      timeout-minutes: 15
-      
-    - name: Upload coverage reports
-      if: matrix.node-version == '20.x'
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./coverage/coverage-final.json
-        fail_ci_if_error: false
-        
-  package-test:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run test:type-check
+
+      - name: Lint
+        # Not `npm run lint`, which passes --fix and so can rewrite the sources it is meant to
+        # be judging. Same rules, read-only.
+        run: npx eslint src/ tests/ scripts/
+
+      - name: Test
+        run: npx vitest run
+
+      - name: Build, then run the generator against the example schema
+        run: npm run gen-example
+
+      - name: Run the emitted schemas
+        # The vitest suite loads the emitted schemas through Vite, which resolves a circular
+        # import to `undefined` rather than failing, so it cannot see an output that Node
+        # refuses to import. This runs them under Node's own loader.
+        run: npm run check:emitted
+
+  # Verifies the artefact users actually get, which is not the working tree. This repo publishes
+  # a curated directory assembled by package.sh, so a green working tree says nothing about
+  # whether the tarball contains lib/, whether `bin` resolves after a real install, or whether
+  # the emitted schemas can be imported from a project that is not this one.
+  #
+  # Both Prisma majors are exercised. Until this job existed the generator re-parsed the schema
+  # with a bundled @prisma/internals and was dead on Prisma 7, with fully green CI.
+  packaged-artifact:
+    name: Packaged artifact (Node ${{ matrix.node-version }}, Prisma ${{ matrix.prisma }})
     runs-on: ubuntu-latest
-    needs: test
-    
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.x', '24.x']
+        prisma: ['6', '7']
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        cache: 'npm'
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Build and package
-      run: |
-        npm run gen-example
-        ./package.sh
-        
-    - name: Test package integrity
-      run: |
-        cd package
-        npm pack --dry-run
-        
-    - name: Upload package artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: package-build
-        path: package/
-        retention-days: 7
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the publishable package directory
+        # The same script the release job runs, so CI exercises the real packaging path.
+        run: npm run package
+
+      - name: Assert the package directory is not empty
+        # package.sh used to run a bare `tsc` with no `set -e`, so when tsc was not on PATH it
+        # produced an EMPTY package and still exited 0. That is fixed; this keeps it fixed.
+        run: |
+          set -euo pipefail
+          test -f package/package.json
+          test -f package/lib/generator.js
+          test -f package/lib/transformer.js
+          echo "package/ contains $(find package -type f | wc -l) files"
+
+      - name: Assert the published package does not carry a second Prisma
+        # @prisma/internals bundles its own schema parser pinned to one Prisma major. Declaring
+        # it as a dependency is what made every Prisma 7 project fail with
+        # `P1012: Argument "url" is missing in data source block`.
+        run: |
+          set -euo pipefail
+          node -e '
+            const deps = require("./package/package.json").dependencies || {};
+            const banned = ["@prisma/internals", "@prisma/client", "prisma"];
+            const found = banned.filter((name) => name in deps);
+            if (found.length) throw new Error("published dependencies must not include: " + found.join(", "));
+            console.log("dependencies:", Object.keys(deps).join(" "));
+          '
+
+      - name: Pack the tarball that would be published
+        working-directory: package
+        # --pack-destination keeps the tarball out of package/, so it cannot end up inside a
+        # later publish of that same directory.
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Create an empty consumer project
+        # An empty directory, not the repo: installing into the repo lets the working tree's own
+        # node_modules mask a broken package. `"type": "module"` because that is the consumer
+        # that caught this: ESM is where a circular emitted import is a hard failure rather than
+        # a silently undefined reference.
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/consumer/prisma"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          node -e 'const fs = require("fs"); const p = require("./package.json"); p.type = "module"; fs.writeFileSync("package.json", JSON.stringify(p, null, 2));'
+          # Prisma 7 removed `url` from datasource blocks, so the URL goes in prisma.config.ts
+          # there and stays inline on 6, and the client provider was renamed. Written per-major
+          # rather than picking one that only works on half the matrix.
+          if [ "${{ matrix.prisma }}" = "7" ]; then
+            client='generator client {
+            provider = "prisma-client"
+            output   = "../generated/prisma"
+          }'
+            datasource='datasource db {
+            provider = "sqlite"
+          }'
+            cat > prisma.config.ts <<'CONFIG'
+          import path from 'node:path';
+          export default {
+            schema: path.join('prisma', 'schema.prisma'),
+            datasource: { url: 'file:./dev.db' },
+          };
+          CONFIG
+          else
+            client='generator client {
+            provider = "prisma-client-js"
+          }'
+            datasource='datasource db {
+            provider = "sqlite"
+            url      = "file:./dev.db"
+          }'
+          fi
+          cat > prisma/schema.prisma <<SCHEMA
+          $client
+
+          generator joi {
+            provider = "prisma-joi-generator"
+            output   = "../generated"
+          }
+
+          $datasource
+
+          model User {
+            id    Int     @id @default(autoincrement())
+            email String  @unique
+            name  String?
+            posts Post[]
+          }
+
+          model Post {
+            id        Int      @id @default(autoincrement())
+            createdAt DateTime @default(now())
+            title     String
+            content   String?
+            published Boolean  @default(false)
+            author    User?    @relation(fields: [authorId], references: [id])
+            authorId  Int?
+          }
+          SCHEMA
+          echo "--- schema.prisma ---"
+          cat prisma/schema.prisma
+
+      - name: Install the packed tarball
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -euo pipefail
+          tarball="$(ls "$RUNNER_TEMP"/prisma-joi-generator-*.tgz)"
+          echo "installing $tarball against prisma ${{ matrix.prisma }}"
+          npm install --no-audit --no-fund "$tarball" \
+            "prisma@${{ matrix.prisma }}" "@prisma/client@${{ matrix.prisma }}" joi tsx
+
+      - name: Run the README's headline command against the installed package
+        working-directory: ${{ runner.temp }}/consumer
+        # This only passes if the tarball contained lib/, if bin resolved after a real install,
+        # and if the generator runs on this Node and this Prisma major.
+        run: npx prisma generate
+
+      - name: Run the emitted schemas from the consumer project
+        # The check the working tree cannot perform on itself: import the emitted schemas from a
+        # different project, under Node's own ESM loader, and validate through the reference
+        # cycle in both directions.
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          set -euo pipefail
+          cp "$GITHUB_WORKSPACE/scripts/check-emitted-schemas.mts" .
+          npx tsx check-emitted-schemas.mts ./generated

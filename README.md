@@ -53,7 +53,7 @@
 
 <div align="center">
   
-  ## 🚀 **Latest Stable Release** - Now with Prisma 6 Support!
+  ## 🚀 **Latest Stable Release** - Prisma 6 and Prisma 7 Support!
   
   <table>
     <tr>
@@ -63,7 +63,7 @@
     </tr>
     <tr>
       <td align="center">
-        <strong>🎉 Production Ready with Prisma 6 and Modern Tooling Support!</strong>
+        <strong>🎉 Production Ready on Prisma 6 and Prisma 7!</strong>
       </td>
     </tr>
   </table>
@@ -72,8 +72,10 @@
 
 ### ✨ **Latest Features**
 
-🆙 **Prisma 6 Compatibility** - Full support for the latest Prisma features:
-- **New Prisma Client Generator** support for ESM compatibility
+🆙 **Prisma 6 and Prisma 7 Compatibility**:
+- **Reads the schema Prisma already parsed**, so it brings no Prisma of its own and cannot
+  disagree with your CLI about your schema
+- **Any client generator, or none**: `prisma-client`, `prisma-client-js`, or neither
 - **Enhanced Type Safety** with improved TypeScript integration
 - **Modern Dependencies** updated to latest stable versions
 
@@ -89,7 +91,7 @@
   | 🚀 **Feature** | 📦 **Version** | 🎯 **Benefit** |
   |----------------|----------------|------------------|
   | **New Prisma Client** | `6.12.0+` | 🆕 ESM-compatible generator support |
-  | **Prisma** | `6.12.0+` | 🏃‍♂️ Latest features & performance |
+  | **Prisma** | `6.12.0+` and `7.x` | 🏃‍♂️ Latest features & performance |
   | **Joi** | `17.13.3+` | 🛡️ Enhanced validation & type safety |
   | **TypeScript** | `5.8+` | ⚡ Cutting-edge language features |
   | **Testing** | `Vitest 3` | 🧪 Comprehensive coverage |
@@ -111,12 +113,15 @@ npm install prisma-joi-generator
 
 ### 🔄 Upgrading
 
-The latest stable version maintains full API compatibility. Requirements:
+Requirements:
 - **Node.js 18+** 
-- **Prisma 6.12.0+** 
+- **Prisma 6.12.0+, including Prisma 7** 
 - **Joi 17.13.3+** 
 
-Simply update your dependencies and re-run `npx prisma generate` - no code changes needed!
+Update your dependencies and re-run `npx prisma generate`. Coming from 1.1.0 or earlier, read
+[how the generated schemas reference each other](#how-the-generated-schemas-reference-each-other)
+first: the emitted output changed shape, because the shape it had could not be imported from an
+ES module.
 
 ```bash
 npm update prisma-joi-generator
@@ -208,12 +213,49 @@ pnpm add prisma-joi-generator
 
 1. **Star this repo** 😉
 
-2. **Add the generator to your Prisma schema:**
+2. **Add the generator to your Prisma schema.**
+
+`prisma generate` refuses to run on a schema with no `datasource` block, so here is a
+complete one that works as written. No client generator is required: add one if you want a
+Prisma Client, leave it out if you only want Joi schemas.
+
+**Prisma 7** removed `url` from the datasource block. The connection URL goes in
+`prisma.config.ts` instead:
 
 ```prisma
 generator joi {
   provider = "prisma-joi-generator"
   output   = "./generated/schemas"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  name  String?
+}
+```
+
+**Prisma 6 and below** keep the `url` on the datasource:
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./generated/schemas"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  name  String?
 }
 ```
 
@@ -225,11 +267,12 @@ npx prisma generate
 
 ## 🆕 Prisma Client Generator Support
 
-The latest stable version includes full support for both the legacy and new ESM-compatible `prisma-client` generator introduced in Prisma 6.12.0!
+This generator reads the schema Prisma has already parsed, so it works next to any client
+generator, or next to none at all. It never imports or extends the Prisma Client.
 
 ### Generator Compatibility
 
-The Joi generator now supports both Prisma client generators:
+Any of these work:
 
 #### Legacy Generator (Existing Projects)
 ```prisma
@@ -260,13 +303,22 @@ generator joi {
 }
 ```
 
+#### No Client Generator
+
+```prisma
+generator joi {
+  provider = "prisma-joi-generator"
+  output   = "./generated/schemas"
+}
+```
+
 ### Key Benefits of the New Generator
 
 - **🔗 ESM Compatibility** - Full ES Module support
 - **📂 Custom Output Location** - Generate client outside `node_modules`
 - **🔧 Runtime Flexibility** - Support for Bun, Deno, Cloudflare Workers
 - **⚡ Better Performance** - Optimized code generation
-- **🔮 Future-Ready** - Will become the default in Prisma v7
+- **🔮 Future-Ready** - The default in Prisma 7
 
 ### Migration Guide
 
@@ -275,6 +327,15 @@ generator joi {
 **New Projects**: Consider using the new `prisma-client` generator for modern features
 
 **Gradual Migration**: Both generators are supported simultaneously during the transition
+
+> **Prisma 7 needs a release newer than 1.1.0.** Up to and including 1.1.0 this package
+> declared `@prisma/internals` as a dependency and re-parsed your schema with the copy of
+> Prisma 6 that came with it. On a Prisma 7 schema that parse fails with
+> `P1012: Argument "url" is missing in data source block`, reported under a
+> `Prisma CLI Version : 6.19.3` banner from a project that has no Prisma 6 in it, and adding
+> the `url` back to satisfy it makes Prisma 7 itself reject the schema. There was no schema
+> that both parsers accepted. Newer releases use the DMMF Prisma hands to every generator and
+> carry no Prisma of their own.
 
 ## 📋 Generated Output
 
@@ -357,11 +418,48 @@ The generator creates different directory structures based on your configuration
 └── 📄 index.ts
 ```
 
+### How the Generated Schemas Reference Each Other
+
+Prisma's input types are cyclic: `UserWhereInput` reaches `PostListRelationFilter`, which
+reaches `PostWhereInput`, which reaches back to `UserWhereInput`. TypeScript modules cannot
+express that by importing each other, so the emitted object schemas do not. Each one refers to
+the others with `Joi.link('#TypeName')`, and `schemas/objects/index.ts` exports an
+`objectSchemas` registry that every link resolves against.
+
+The generated root schemas already carry it, so most of the time this is invisible:
+
+```ts
+import { UserFindManySchema } from './generated/schemas';
+
+// emitted as: objectSchemas.concat(Joi.object().keys({ ... }))
+UserFindManySchema.validate({ where: { posts: { some: { title: { equals: 'hello' } } } } });
+```
+
+If you compose a schema out of the exported `...SchemaObject` key bags yourself, concatenate
+the registry onto it, otherwise Joi has nowhere to resolve the links and throws
+`AssertError: ... contains link reference ... which is outside of schema boundaries`:
+
+```ts
+import Joi from 'joi';
+import { objectSchemas, UserWhereInputSchemaObject } from './generated/schemas/objects';
+
+const myFilter = objectSchemas.concat(Joi.object().keys(UserWhereInputSchemaObject));
+```
+
+> **Upgrading from 1.1.0 or earlier.** Before this, object schemas embedded each other directly.
+> That output could not be imported from an ES module at all, failing with
+> `ReferenceError: Cannot access 'UserWhereInputSchemaObject' before initialization`, and when
+> compiled to CommonJS every reference across a cycle silently resolved to `undefined`, so each
+> relation filter accepted absolutely anything. If you were relying on that, values nested
+> under a relation filter are now validated, and a self-referential `where.AND` no longer
+> throws.
+
 ### Version Compatibility
 
 | Version | Prisma | Joi | TypeScript | Node.js | Status |
 |---------|--------|-----|------------|---------|--------|
-| **Latest** | 6.12.0+ | 17.13.3+ | 5.8+ | 18+ | ✅ **Stable** - Full Features + Prisma 6 Support |
+| **Latest** | 6.12.0+ and 7.x | 17.13.3+ | 5.8+ | 18+ | ✅ **Stable** - verified against Prisma 6.19 and 7.9 on Node 22 and 24 |
+| **1.1.0 and earlier** | 6.12.0 - 6.x | 17.13.3+ | 5.8+ | 18+ | ⛔ **Prisma 6 only** - fails on Prisma 7, see the note above |
 | **Legacy** | 4.0.0+ | 17.0+ | 4.7+ | 16+ | 📦 **Deprecated** - Limited Support |
 
 > **Recommendation**: Use `npm install prisma-joi-generator` for the latest stable release with full features and modern tooling.
@@ -769,10 +867,10 @@ Examples:
 
 ### Latest Version Information
 
-**Prisma 6 Compatibility**
-- Full support for both `prisma-client-js` and `prisma-client` generators
-- Enhanced type safety with modern TypeScript features
-- Improved error messages and debugging experience
+**Prisma Compatibility**
+- Works on Prisma 6.12.0+ and Prisma 7
+- Works next to `prisma-client-js`, next to `prisma-client`, or with no client generator
+- Brings no Prisma of its own, so it cannot disagree with the CLI about your schema
 
 **Current Requirements**
 - Requires Node.js 18+
@@ -788,9 +886,9 @@ Examples:
 ### Common Issues
 
 **Generator compatibility errors**
-- Ensure you have either `prisma-client-js` or `prisma-client` generator in your schema
-- The Joi generator provides clear error messages with examples if no compatible generator is found
-- Both legacy and new generators are supported simultaneously
+- No client generator is required. `prisma-client-js`, `prisma-client` and a schema with
+  neither all work
+- Your schema does need a `datasource` block, because `prisma generate` will not run without one
 
 **Error: Cannot find module './generated/schemas'**
 - Ensure you've run `npx prisma generate` after adding the generator
@@ -932,10 +1030,18 @@ We have comprehensive tests covering:
 
 Run specific test suites:
 ```bash
+npx vitest run               // Every test file, which is what CI runs
 npm run test:basic           // Basic functionality
-npm run test:multi           // Multi-provider testing  
 npm run test:coverage        // Coverage reports
-npm run test:comprehensive   // Full test suite
+```
+
+The test suite imports this repo's `src/`, so it cannot tell you whether the package it
+produces works. Two more checks cover that gap, and CI runs both:
+
+```bash
+npm run gen-example          // Build, then generate from the example schema
+npm run check:emitted        // Run the emitted schemas under Node's own loader
+npm run package              // Assemble the directory that gets published
 ```
 
 ### Contribution Guidelines

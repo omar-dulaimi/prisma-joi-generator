@@ -8,18 +8,27 @@ This repository uses GitHub Actions for automated testing, building, and releasi
 **Trigger**: Push/PR to master branch
 
 **Jobs**:
-- **test**: Runs on Node.js 18.x, 20.x, 22.x
-  - Builds project with `npm run gen-example`
-  - Type checking with `npm run test:type-check`
-  - Linting with `npm run lint`
-  - Basic tests with `npm run test:basic`
-  - Comprehensive tests with coverage
-  - MongoDB-specific tests
-  - Multi-provider tests (sequential)
-  - Uploads coverage to Codecov
-- **package-test**: Tests package integrity
-  - Builds and packages the project
-  - Verifies package can be created successfully
+- **verify**: Node.js 22.x and 24.x
+  - `npm run test:type-check`
+  - `npx eslint src/ tests/ scripts/`, read-only. Not `npm run lint`, which passes `--fix` and
+    can rewrite the sources it is supposed to be judging
+  - `npx vitest run`, every test file rather than a curated subset
+  - `npm run gen-example`
+  - `npm run check:emitted`, which runs the schemas the generator emits under Node's own
+    loader. The vitest suite loads them through Vite, which resolves a circular import to
+    `undefined` instead of failing, so it cannot see an output Node refuses to import
+- **packaged-artifact**: Node.js 22.x and 24.x, Prisma 6 and Prisma 7
+  - Builds `package/` with the same script the release job uses, and asserts it is not empty.
+    `package.sh` used to run a bare `tsc` with no `set -e`, so a missing tsc produced an empty
+    package and exited 0
+  - Asserts the published dependencies carry no second Prisma. `@prisma/internals` bundles its
+    own schema parser, which is what made every Prisma 7 project fail with
+    `P1012: Argument "url" is missing in data source block`
+  - Packs the tarball, installs it into an empty `"type": "module"` project with a schema
+    written for that Prisma major, runs `npx prisma generate`, then runs the emitted schemas
+
+  No step here is `continue-on-error`. Every one of them was, which is how a package that
+  could not be imported and could not run on Prisma 7 stayed green.
 
 ### 2. Semantic Release (`semantic-release.yml`)
 **Trigger**: Push to master branch
@@ -71,7 +80,7 @@ workflow publishes cleanly with no cleanup.
 
 ### Branch protection
 - Enable branch protection for `master`
-- Require status checks: "test", "package-test"
+- Require status checks: the four "Typecheck, lint, test" and "Packaged artifact" matrix jobs
 - Require up-to-date branches
 
 ## Commit Message Format
@@ -121,14 +130,15 @@ To trigger a manual release:
 ## Testing Locally
 
 ```bash
-# Run basic tests
-npm run test:basic
+# Run every test file, which is what CI does
+npx vitest run
 
-# Run with coverage
-npm run test:coverage
+# Run the schemas the generator emits, under Node's own loader
+npm run gen-example
+npm run check:emitted
 
-# Run multi-provider tests
-npm run test:multi:sequential
+# Build the directory that gets published
+npm run package
 
 # Test release process (dry run)
 npm run release:dry
@@ -136,8 +146,8 @@ npm run release:dry
 # Type check
 npm run test:type-check
 
-# Lint code
-npm run lint
+# Lint code, read-only, the way CI does
+npx eslint src/ tests/ scripts/
 ```
 
 ## Monitoring

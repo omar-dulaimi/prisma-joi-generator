@@ -6,7 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Gate the release on the full CI, including the job that installs the packed tarball into an
+  # empty project and runs it. Publishing is irreversible on npm, so the artefact users would
+  # get is checked before it is published rather than after.
+  ci:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,7 +24,7 @@ jobs:
       # exchanges it with the registry for a short-lived credential.
       id-token: write
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -48,14 +56,15 @@ jobs:
           conventional-changelog-conventionalcommits
         
     - name: Build and test
+      # Typecheck, lint and the test suite already ran in the `ci` job this depends on. What is
+      # rebuilt here is the output that goes into the package, plus the check that the emitted
+      # schemas can actually be imported and run.
       run: |
         npm run gen-example
-        npm run test:type-check
-        npm run lint
-        npm run test:basic
-        
+        npm run check:emitted
+
     - name: Build package
-      run: ./package.sh
+      run: npm run package
       
     - name: Semantic Release
       env:

@@ -1,10 +1,8 @@
 import {
   DMMF,
   EnvValue,
-  GeneratorConfig,
   GeneratorOptions,
 } from '@prisma/generator-helper';
-import { getDMMF, parseEnvValue } from '@prisma/internals';
 import { promises as fs } from 'fs';
 import removeDir from './utils/removeDir';
 import Transformer from './transformer';
@@ -12,12 +10,40 @@ import { parseGeneratorConfig, ValidatedJoiGeneratorConfig } from './types';
 import { fileTypeRegistry, GenerationContext } from './registry';
 import { logger } from './utils/logger';
 
+/**
+ * Resolves a schema value that may be written as `env("SOME_VAR")`.
+ *
+ * Inlined from `@prisma/internals`. That package is a private implementation detail of the
+ * Prisma CLI rather than a public API: it is pinned to one Prisma major and ships its own
+ * schema parser, so depending on it from a generator drags a second, mismatched copy of
+ * Prisma into every consumer's project.
+ */
+export function parseEnvValue(object: EnvValue): string {
+  if (object.fromEnvVar && object.fromEnvVar !== 'null') {
+    const value = process.env[object.fromEnvVar];
+    if (!value) {
+      throw new Error(
+        `Attempted to load provider value using \`env(${object.fromEnvVar})\` but it was not present. Please ensure that ${object.fromEnvVar} is present in your Environment Variables`,
+      );
+    }
+    return value;
+  }
+  return object.value as string;
+}
+
 export async function generate(options: GeneratorOptions) {
   const timer = logger.timer('Total generation');
   
   try {
     logger.info('Starting Prisma Joi Generator');
-    
+
+    // The lists the index files and the object registry are built from are static, so a second
+    // generate() in the same process would emit references to the previous run's files.
+    Transformer.generatedSchemaFiles = [];
+    Transformer.generatedSchemaObjectFiles = [];
+    Transformer.generatedSchemaObjectNames = [];
+    Transformer.generatedSchemaEnumFiles = [];
+
     // Parse and validate generator configuration
     const parseTimer = logger.timer('Configuration parsing');
     const config = parseGeneratorConfig(options);
@@ -33,34 +59,15 @@ export async function generate(options: GeneratorOptions) {
     
     await handleGeneratorOutputValue(options.generator.output as EnvValue, config);
 
-    const prismaClientGeneratorConfig = 
-      getGeneratorConfigByProvider(options.otherGenerators, 'prisma-client-js') ||
-      getGeneratorConfigByProvider(options.otherGenerators, 'prisma-client');
-
-    if (!prismaClientGeneratorConfig) {
-      throw new Error(
-        'Prisma Joi Generator requires either "prisma-client-js" or "prisma-client" generator to be present in your schema.prisma file.\n\n' +
-        'Please add one of the following to your schema.prisma:\n\n' +
-        '// For the legacy generator:\n' +
-        'generator client {\n' +
-        '  provider = "prisma-client-js"\n' +
-        '}\n\n' +
-        '// Or for the new generator (Prisma 6.12.0+):\n' +
-        'generator client {\n' +
-        '  provider = "prisma-client"\n' +
-        '}'
-      );
-    }
-
-    logger.debug('Loading Prisma DMMF');
-    const dmmfTimer = logger.timer('DMMF loading');
-    const prismaClientDmmf = await getDMMF({
-      datamodel: options.datamodel,
-      previewFeatures: prismaClientGeneratorConfig?.previewFeatures,
-    });
-    dmmfTimer();
-
-    checkForCustomPrismaClientOutputPath(prismaClientGeneratorConfig);
+    // Prisma parses and validates the schema before it starts a generator and hands the result
+    // over as `options.dmmf`, a field that has existed unchanged through Prisma 6 and 7. This
+    // used to call `getDMMF({ datamodel, previewFeatures })` from `@prisma/internals` instead,
+    // which re-parsed the schema with a bundled Prisma 6. On Prisma 7 the two parsers cannot
+    // agree: Prisma 7 removed `url` from the datasource block, so a valid Prisma 7 schema made
+    // the bundled parser fail with `P1012: Argument "url" is missing in data source block`,
+    // while adding the `url` back to satisfy it made Prisma 7 itself reject the schema.
+    logger.debug('Reading the DMMF Prisma passed to the generator');
+    const prismaClientDmmf: DMMF.Document = options.dmmf;
 
     logger.generationStart(
       prismaClientDmmf.datamodel.models.length,
@@ -159,23 +166,10 @@ async function handleGeneratorOutputValue(generatorOutputValue: EnvValue, config
   Transformer.setConfig(config);
 }
 
-function getGeneratorConfigByProvider(
-  generators: GeneratorConfig[],
-  provider: string,
-) {
-  return generators.find((it) => parseEnvValue(it.provider) === provider);
-}
-
-function checkForCustomPrismaClientOutputPath(
-  prismaClientGeneratorConfig: GeneratorConfig | undefined,
-) {
-  if (prismaClientGeneratorConfig?.isCustomOutput) {
-    // Store custom output path for future use if needed
-    // Transformer.setPrismaClientOutputPath(
-    //   prismaClientGeneratorConfig.output?.value as string,
-    // );
-  }
-}
+// This used to refuse to run unless a `prisma-client-js` or `prisma-client` generator was
+// present, purely so it could read `previewFeatures` off it and hand them to its own parser.
+// Nothing here imports or extends the client, and the parser is gone, so the requirement went
+// with it: the generator now runs next to either client provider, or on its own.
 
 // Legacy generation functions removed - now handled by FileTypeRegistry
 
