@@ -40,11 +40,15 @@ jobs:
         # be judging. Same rules, read-only.
         run: npx eslint src/ tests/ scripts/
 
-      - name: Test
-        run: npx vitest run
-
+      # Before the tests, not after. Parts of the suite read `prisma/generated` rather than
+      # producing it, and this is the step that writes it. With the order the other way round the
+      # suite passed on any machine that had generated once before and failed on every clean
+      # checkout, which is exactly what CI is.
       - name: Build, then run the generator against the example schema
         run: npm run gen-example
+
+      - name: Test
+        run: npx vitest run
 
       - name: Run the emitted schemas
         # The vitest suite loads the emitted schemas through Vite, which resolves a circular
