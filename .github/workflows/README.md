@@ -21,92 +21,58 @@ This repository uses GitHub Actions for automated testing, building, and releasi
   - Builds and packages the project
   - Verifies package can be created successfully
 
-### 2. Release (`release.yml`)
-**Trigger**: Push to master branch, manual dispatch
-
-**Features**:
-- Automatic version bumping based on commit messages
-- Manual release type selection (patch/minor/major)
-- Automated Git tagging and GitHub releases
-- NPM package publishing
-- Package artifact uploading
-
-**Version Determination**:
-- `BREAKING CHANGE` in commit → major version
-- `feat:` or `feature:` → minor version
-- Everything else → patch version
-
-### 3. Semantic Release (`semantic-release.yml`)
+### 2. Semantic Release (`semantic-release.yml`)
 **Trigger**: Push to master branch
 
 **Features**:
 - Uses conventional commits for automated releases
 - Generates changelogs automatically
-- Publishes to NPM with proper versioning
 - Creates GitHub releases with release notes
-
-### 4. Extended Test Matrix (`test-matrix.yml`)
-**Trigger**: Nightly schedule (2 AM UTC), manual dispatch, pushes to master
-
-**Features**:
-- Cross-platform testing (Ubuntu, Windows, macOS)
-- Extended Node.js version matrix (16.x, 18.x, 20.x, 22.x)
-- Database compatibility testing with real databases
-- Performance and compatibility tests
-- Comprehensive test reporting
-
-### 5. Dependabot Auto-merge (`dependabot-auto-merge.yml`)
-**Trigger**: Dependabot PRs
-
-**Features**:
-- Automatically tests dependabot PRs
-- Auto-approves and merges patch/minor updates
-- Skips major version updates for manual review
+- Publishes to npm from the `package/` directory
 
 ## Configuration Files
-
-### Dependabot (`.github/dependabot.yml`)
-- Weekly dependency updates on Mondays
-- Grouped updates for related packages (Prisma, testing, ESLint, etc.)
-- Ignores major updates for critical dependencies
-- Automatic labeling and assignment
 
 ### Semantic Release (`.releaserc.json`)
 - Conventional commits configuration
 - Automatic changelog generation
 - Branch-based release strategy (master = stable releases)
-- NPM publishing from `package/` directory
+- npm publishing from `package/` directory
+- `repositoryUrl` is set explicitly. package.json uses npm's `git+https://` form, which
+  @semantic-release/github parses into an empty `$owner`; its `fail` step then dies on a GraphQL error
+  that masks whatever actually went wrong.
 
-## Required Secrets
+## Authentication
 
-To use these workflows, configure the following secrets in your repository:
+Publishing uses npm **Trusted Publishing** (OIDC). There is no npm token, and adding one would break it.
 
-### Required
-- `GITHUB_TOKEN`: Automatically provided by GitHub
-- `NPM_TOKEN`: NPM registry access token for publishing
+The npm account has "Require two-factor authentication and disallow tokens" enabled, so token-based
+automation cannot publish at all. Instead, `@semantic-release/npm` requests a short-lived OIDC token from
+GitHub and exchanges it with the registry. Four things make that work, and each is load-bearing:
 
-### Optional
-- `CODECOV_TOKEN`: For code coverage reporting
+- `id-token: write` on the release job, without which there is no token to exchange
+- Node 24, because the exchange needs npm 11.5.1 or newer
+- `@semantic-release/npm` 13 or newer, the first version with OIDC support
+- no `registry-url` on `actions/setup-node` and no `NPM_TOKEN` in the release step, since either one writes
+  an `.npmrc` that conflicts with the exchange
 
-## Setup Instructions
+### Required secrets
+- `GITHUB_TOKEN`: automatically provided by GitHub
 
-1. **NPM Token**: 
-   ```bash
-   npm login
-   npm token create --read-only
-   ```
-   Add this token as `NPM_TOKEN` in repository secrets.
+That is the complete list. Nothing else needs configuring in the repository.
 
-2. **Codecov Token**:
-   - Visit [codecov.io](https://codecov.io)
-   - Connect your repository
-   - Copy the token and add as `CODECOV_TOKEN`
+### One-time setup on npmjs.com
+A Trusted Publisher must be registered for this package before the first release: package page, Settings,
+Trusted Publisher, GitHub Actions, then this repository and the workflow filename, leaving the Environment
+field **blank** (the release job declares no `environment:`, so filling it in makes the OIDC claim mismatch).
 
-3. **Branch Protection**:
-   - Enable branch protection for `master`
-   - Require status checks: "test", "package-test"
-   - Require up-to-date branches
-   - Require review from code owners
+Until that exists, a release fails with `ENONPMTOKEN` at `verifyConditions`. That failure is safe: it
+happens before anything is tagged or version-bumped, so registering the publisher and re-running the
+workflow publishes cleanly with no cleanup.
+
+### Branch protection
+- Enable branch protection for `master`
+- Require status checks: "test", "package-test"
+- Require up-to-date branches
 
 ## Commit Message Format
 
@@ -179,7 +145,6 @@ npm run lint
 - **GitHub Actions**: View workflow runs in the Actions tab
 - **NPM**: Monitor package downloads and versions
 - **Codecov**: Track code coverage trends
-- **Dependabot**: Review dependency update PRs
 
 ## Troubleshooting
 
@@ -190,17 +155,15 @@ npm run lint
    - Verify line ending settings
 
 2. **Release workflow fails**:
-   - Verify NPM_TOKEN is valid
-   - Check conventional commit format
-   - Ensure all tests pass
+   - `ENONPMTOKEN` at verifyConditions means no Trusted Publisher is registered for this package on
+     npmjs.com yet. Nothing was tagged or published, so register it and re-run.
+   - `Have you granted the id-token: write permission` means the release job lost that permission.
+   - Check conventional commit format, and that a releasable commit type is present.
+   - Ensure all tests pass; the release job is gated on CI.
 
 3. **Coverage upload fails**:
    - Verify CODECOV_TOKEN
    - Check coverage file generation
-
-4. **Dependabot PRs fail**:
-   - Review breaking changes in dependencies
-   - Check test compatibility
 
 ### Getting Help
 
