@@ -1,3 +1,29 @@
+## [2.0.0](https://github.com/omar-dulaimi/prisma-joi-generator/compare/v1.1.0...v2.0.0) (2026-07-28)
+
+### ⚠ BREAKING CHANGES
+
+* **breaking:** the generated schemas changed shape. Object schemas now reference each
+other with `Joi.link('#Name')` instead of importing each other, and root schemas are
+concatenated onto the new `objectSchemas` registry exported from
+`schemas/objects/index.ts`. Regenerate with `npx prisma generate`. If you compose schemas
+from the exported `...SchemaObject` key bags directly, concatenate `objectSchemas` onto
+them, otherwise Joi throws `AssertError: ... contains link reference ... which is outside
+of schema boundaries`. Values nested under a relation filter are now validated where they
+were previously accepted unconditionally, so payloads that used to pass may now be
+rejected.
+
+Claude-Session: https://claude.ai/code/session_018FDR2Y8LpjgfsdD4FhQVZZ
+
+### 🐛 Bug Fixes
+
+* **breaking:** emit schemas that can be imported, and run on Prisma 7 ([b380b3d](https://github.com/omar-dulaimi/prisma-joi-generator/commit/b380b3d556b9ebd7cc6a6ac20fd43a407549e8ee))
+* **ci:** generate before testing, since the suite reads what generate writes ([a52953f](https://github.com/omar-dulaimi/prisma-joi-generator/commit/a52953f3b79427f73e1ac9f5b31d210e8dfea1f3))
+* stop dropping Decimal, BigInt, Bytes and enum fields ([2364354](https://github.com/omar-dulaimi/prisma-joi-generator/commit/236435466664abd50296107accc35adacc74f8af))
+
+### 📚 Documentation
+
+* **ci:** describe the workflows that exist and the auth that works ([ea65f44](https://github.com/omar-dulaimi/prisma-joi-generator/commit/ea65f44658f421a805cea84d5a3473b667116c10))
+
 ## [1.1.0](https://github.com/omar-dulaimi/prisma-joi-generator/compare/v1.0.0...v1.1.0) (2025-07-26)
 
 ### 🚀 Features
