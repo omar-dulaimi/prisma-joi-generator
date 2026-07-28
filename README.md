@@ -1105,7 +1105,7 @@ This project is licensed under the [MIT License](LICENSE).
       <td align="center">
         <img src="https://img.shields.io/badge/💎-Latest_Stable-success?style=for-the-badge&logo=npm" alt="Stable">
         <br>
-        <code>v1.0.0</code>
+        <code>v2.0.0</code>
       </td>
       <td align="center">
         <img src="https://img.shields.io/badge/📦-Legacy_Version-lightgrey?style=for-the-badge&logo=archive" alt="Legacy">
